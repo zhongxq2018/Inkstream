@@ -2,6 +2,8 @@
 
 基于 [ModelScope](https://modelscope.cn/) 的本地大模型聊天应用。在本地运行 **Qwen3.5-0.8B**，提供 Web 对话界面与 HTTP API，无需依赖云端服务，适合个人机器离线使用。
 
+![墨涧工坊对话界面](docs/screenshot.png)
+
 ## 功能特性
 
 - **本地推理**：CPU 友好，默认在 CPU 上运行 0.8B 小模型
