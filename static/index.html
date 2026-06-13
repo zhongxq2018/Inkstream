@@ -94,22 +94,59 @@
     }
     .brand p { font-size: 0.78rem; line-height: 1.6; color: var(--text-muted); }
 
-    /* ── Auth area ── */
-    .auth-panel {
-      padding: 14px 16px;
-      background: var(--ink-soft);
-      border: 1px solid var(--border);
-      border-radius: 4px; flex-shrink: 0;
+    /* ── Auth area (top-right) ── */
+    .auth-trigger {
+      position: relative; display: flex; align-items: center; gap: 8px;
     }
-    .auth-label {
-      font-size: 0.68rem; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 8px;
+
+    /* 已登录态：用户名 chip */
+    .user-chip {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .user-chip-name {
+      font-size: 0.82rem; color: var(--jade-soft);
+      max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .btn-logout {
+      padding: 5px 12px; background: transparent;
+      border: 1px solid rgba(192,57,43,0.35); color: var(--text-muted);
+      font-family: var(--font-body); font-size: 0.75rem; border-radius: 3px;
+      cursor: pointer; white-space: nowrap;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .btn-logout:hover { background: rgba(192,57,43,0.12); border-color: var(--vermillion); color: var(--vermillion-glow); }
+
+    /* 未登录态：触发按钮 */
+    .btn-login-trigger {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 14px; background: transparent;
+      border: 1px solid rgba(74,107,93,0.4); color: var(--jade-soft);
+      font-family: var(--font-body); font-size: 0.78rem; letter-spacing: 0.06em;
+      border-radius: 3px; cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    .btn-login-trigger:hover { background: rgba(74,107,93,0.15); border-color: var(--jade); color: var(--paper); }
+    .btn-login-trigger svg { width: 14px; height: 14px; fill: currentColor; }
+
+    /* 下拉弹窗 */
+    .auth-dropdown {
+      position: absolute; top: calc(100% + 10px); right: 0;
+      width: 220px; padding: 16px;
+      background: var(--ink-soft); border: 1px solid var(--border);
+      border-radius: 6px; box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+      z-index: 200; display: none;
+      animation: fadeUp 0.2s cubic-bezier(0.16,1,0.3,1) both;
+    }
+    .auth-dropdown.open { display: block; }
+    .auth-dropdown-label {
+      font-size: 0.68rem; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 10px;
     }
     .auth-input {
-      width: 100%; padding: 7px 10px;
+      width: 100%; padding: 8px 10px;
       background: var(--ink-mid); border: 1px solid var(--border);
       border-radius: 3px; color: var(--paper);
       font-family: var(--font-body); font-size: 0.82rem; outline: none;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .auth-input:focus { border-color: rgba(74,107,93,0.5); }
     .auth-input::placeholder { color: var(--text-muted); }
@@ -124,19 +161,6 @@
     .btn-auth:hover { background: rgba(74,107,93,0.15); border-color: var(--jade); color: var(--paper); }
     .btn-auth.primary { border-color: rgba(192,57,43,0.45); color: var(--vermillion-glow); }
     .btn-auth.primary:hover { background: rgba(192,57,43,0.15); border-color: var(--vermillion); color: var(--paper); }
-
-    .user-panel {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    }
-    .user-name { font-size: 0.82rem; color: var(--jade-soft); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .btn-logout {
-      padding: 5px 10px; background: transparent;
-      border: 1px solid rgba(192,57,43,0.3); color: var(--text-muted);
-      font-family: var(--font-body); font-size: 0.72rem; border-radius: 2px;
-      cursor: pointer; white-space: nowrap;
-      transition: background 0.2s, color 0.2s, border-color 0.2s;
-    }
-    .btn-logout:hover { background: rgba(192,57,43,0.12); border-color: var(--vermillion); color: var(--vermillion-glow); }
 
     /* ── Status ── */
     .status-card {
@@ -492,22 +516,6 @@
         <p>Qwen3.5-0.8B 本地推理<br />数据不出本机</p>
       </div>
 
-      <!-- 认证区 -->
-      <div class="auth-panel" id="authSection">
-        <div class="auth-label">用户名登录 / 注册</div>
-        <input class="auth-input" id="usernameInput" type="text" placeholder="输入用户名（2-32字符）" maxlength="32" />
-        <div class="auth-btns">
-          <button class="btn-auth primary" id="registerBtn">注册</button>
-          <button class="btn-auth" id="loginBtn">登录</button>
-        </div>
-      </div>
-      <div class="auth-panel" id="userSection" style="display:none">
-        <div class="user-panel">
-          <span class="user-name" id="currentUser"></span>
-          <button class="btn-logout" id="logoutBtn">退出</button>
-        </div>
-      </div>
-
       <!-- 状态 -->
       <div class="status-card">
         <div class="status-row">
@@ -551,7 +559,28 @@
     <main class="main">
       <header class="chat-header">
         <h2 id="chatTitle">对话</h2>
-        <span id="modelBadge">Qwen3.5-0.8B · CPU</span>
+        <div class="auth-trigger" id="authTrigger">
+          <!-- 未登录 -->
+          <div id="authSection">
+            <button class="btn-login-trigger" id="loginTriggerBtn">
+              <svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>
+              登录 / 注册
+            </button>
+            <div class="auth-dropdown" id="authDropdown">
+              <div class="auth-dropdown-label">用户名登录 / 注册</div>
+              <input class="auth-input" id="usernameInput" type="text" placeholder="输入用户名（2-32字符）" maxlength="32" />
+              <div class="auth-btns">
+                <button class="btn-auth primary" id="registerBtn">注册</button>
+                <button class="btn-auth" id="loginBtn">登录</button>
+              </div>
+            </div>
+          </div>
+          <!-- 已登录 -->
+          <div class="user-chip" id="userSection" style="display:none">
+            <span class="user-chip-name" id="currentUser"></span>
+            <button class="btn-logout" id="logoutBtn">退出</button>
+          </div>
+        </div>
       </header>
 
       <div class="messages" id="messages">
@@ -601,6 +630,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>

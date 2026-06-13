@@ -29,18 +29,31 @@ const sidebar      = document.getElementById("sidebar");
 const sidebarOverlay = document.getElementById("sidebarOverlay");
 
 // ── 用户区 DOM ────────────────────────────────────────────────────────────────
-const authSection   = document.getElementById("authSection");
-const userSection   = document.getElementById("userSection");
-const usernameInput = document.getElementById("usernameInput");
-const registerBtn   = document.getElementById("registerBtn");
-const loginBtn      = document.getElementById("loginBtn");
-const currentUser   = document.getElementById("currentUser");
-const logoutBtn     = document.getElementById("logoutBtn");
+const authSection    = document.getElementById("authSection");
+const userSection    = document.getElementById("userSection");
+const usernameInput  = document.getElementById("usernameInput");
+const registerBtn    = document.getElementById("registerBtn");
+const loginBtn       = document.getElementById("loginBtn");
+const currentUser    = document.getElementById("currentUser");
+const logoutBtn      = document.getElementById("logoutBtn");
+const loginTriggerBtn = document.getElementById("loginTriggerBtn");
+const authDropdown   = document.getElementById("authDropdown");
 
 // ── 工具函数 ──────────────────────────────────────────────────────────────────
+function generateUUID() {
+  // crypto.randomUUID 仅限安全上下文（HTTPS/localhost），此处兼容 HTTP + IP 访问
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
 function getGuestId() {
   let id = localStorage.getItem("guest_id");
-  if (!id) { id = crypto.randomUUID(); localStorage.setItem("guest_id", id); }
+  if (!id) { id = generateUUID(); localStorage.setItem("guest_id", id); }
   return id;
 }
 
@@ -734,6 +747,25 @@ hamburgerBtn?.addEventListener("click", () => {
 });
 sidebarOverlay?.addEventListener("click", closeSidebar);
 
+// ── 登录弹窗开关 ──────────────────────────────────────────────────────────────
+loginTriggerBtn?.addEventListener("click", e => {
+  e.stopPropagation();
+  authDropdown.classList.toggle("open");
+  if (authDropdown.classList.contains("open")) usernameInput.focus();
+});
+
+document.addEventListener("click", e => {
+  if (!authDropdown?.classList.contains("open")) return;
+  if (!authDropdown.contains(e.target) && e.target !== loginTriggerBtn) {
+    authDropdown.classList.remove("open");
+  }
+});
+
+usernameInput?.addEventListener("keydown", e => {
+  if (e.key === "Enter") loginBtn.click();
+  if (e.key === "Escape") authDropdown.classList.remove("open");
+});
+
 // ── 认证 ──────────────────────────────────────────────────────────────────────
 async function initAuth() {
   const tok = getAuthToken();
@@ -772,6 +804,7 @@ async function doAuth(endpoint) {
     setAuthToken(data.token);
     showLoggedIn(data.username);
     usernameInput.value = "";
+    authDropdown?.classList.remove("open");
     await refreshConvList();
     // 重新加载最近对话
     const listRes = await fetch("/api/conversations", { headers: apiHeaders() });
