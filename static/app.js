@@ -162,7 +162,7 @@ async function checkHealth() {
     const modelName = data.model?.split(/[\\/]/).pop() || "Qwen3.5-0.8B";
     const accessUrl = data.urls?.lan || window.location.origin + "/";
     statusDetail.innerHTML = `${modelName} · ${data.device?.toUpperCase()||"CPU"}<br><a href="${accessUrl}" style="color:var(--jade-soft)">${accessUrl}</a>`;
-    modelBadge.textContent = `${modelName} · ${data.device?.toUpperCase()||"CPU"}`;
+    if (modelBadge) modelBadge.textContent = `${modelName} · ${data.device?.toUpperCase()||"CPU"}`;
     return true;
   } catch {
     statusDot.className = "status-dot offline";
@@ -372,6 +372,10 @@ async function consumeStream(response, onChunk) {
 }
 
 // ── 发送消息（主流程）─────────────────────────────────────────────────────────
+function isStreamVisible(convId, streamMsg) {
+  return activeConvId === convId && streamMsg.el.isConnected;
+}
+
 async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}) {
   const prompt = text.trim();
   if (!prompt || isGenerating) return;
@@ -385,13 +389,17 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
     if (!conv) return;
   }
 
+  // 锁定本次请求所属对话，切换对话后仍写入原对话
+  const convId = activeConvId;
+  const requestHistory = [...history];
+
   // 编辑模式：更新消息内容并截断后续
   if (editMsgId && editSortOrder !== null) {
-    await fetch(`/api/conversations/${activeConvId}/messages/${editMsgId}`, {
+    await fetch(`/api/conversations/${convId}/messages/${editMsgId}`, {
       method: "PATCH", headers: apiHeaders(),
       body: JSON.stringify({ content: prompt }),
     });
-    await fetch(`/api/conversations/${activeConvId}/messages/from/${editMsgId}`, {
+    await fetch(`/api/conversations/${convId}/messages/from/${editMsgId}`, {
       method: "DELETE", headers: apiHeaders(),
     });
     // 等幂：重新 append user 消息
@@ -401,21 +409,26 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
   document.getElementById("welcome")?.remove();
 
   // 保存 user 消息到 DB
-  const userMsgRes = await fetch(`/api/conversations/${activeConvId}/messages`, {
+  const userMsgRes = await fetch(`/api/conversations/${convId}/messages`, {
     method: "POST", headers: apiHeaders(),
     body: JSON.stringify({ role: "user", content: prompt }),
   });
   const userMsg = await userMsgRes.json();
 
-  history.push({ role: "user", content: prompt });
-  const userEl = createMessage("user", prompt, { msgId: userMsg.id });
-  messagesEl.appendChild(userEl);
-  scrollToBottom();
+  requestHistory.push({ role: "user", content: prompt });
+  if (activeConvId === convId) {
+    history.push({ role: "user", content: prompt });
+    const userEl = createMessage("user", prompt, { msgId: userMsg.id });
+    messagesEl.appendChild(userEl);
+    scrollToBottom();
+  }
 
   inputEl.value = ""; inputEl.style.height = "auto";
   setGenerating(true);
 
-  const streamMsg = createStreamingMessage();
+  const streamMsg = activeConvId === convId
+    ? createStreamingMessage()
+    : { el: document.createElement("div"), contentEl: null, answerEl: { textContent: "" } };
   let fullText = "";
   let interrupted = false;
 
@@ -427,7 +440,7 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
       headers: apiHeaders(),
       signal: abortController.signal,
       body: JSON.stringify({
-        messages: history,
+        messages: requestHistory,
         enable_thinking: thinkingTog.checked,
         max_new_tokens: parseInt(maxTokensEl.value, 10),
       }),
@@ -440,6 +453,7 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
 
     await consumeStream(res, chunk => {
       fullText += chunk;
+      if (!isStreamVisible(convId, streamMsg)) return;
       streamMsg.answerEl.textContent = fullText;
       scrollToBottom();
     });
@@ -447,33 +461,38 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
     if (err.name === "AbortError") {
       interrupted = true;
     } else {
-      streamMsg.el.remove();
-      history.pop();
+      if (isStreamVisible(convId, streamMsg)) streamMsg.el.remove();
+      if (activeConvId === convId) history.pop();
       showError(err.message || "生成失败，请重试");
       setGenerating(false);
       return;
     }
   }
 
-  // 保存 assistant 消息（中断时有内容也保存）
+  // 保存 assistant 消息（中断时有内容也保存到原对话）
   let asstMsgId = null;
   if (fullText) {
-    const asstMsgRes = await fetch(`/api/conversations/${activeConvId}/messages`, {
+    const asstMsgRes = await fetch(`/api/conversations/${convId}/messages`, {
       method: "POST", headers: apiHeaders(),
       body: JSON.stringify({ role: "assistant", content: fullText + (interrupted ? "\n（已中断）" : "") }),
     });
     const asstMsg = await asstMsgRes.json();
     asstMsgId = asstMsg.id;
-    history.push({ role: "assistant", content: fullText });
+    if (activeConvId === convId) history.push({ role: "assistant", content: fullText });
   } else if (interrupted) {
-    streamMsg.el.remove();
+    if (isStreamVisible(convId, streamMsg)) streamMsg.el.remove();
     setGenerating(false);
     await refreshConvList();
     return;
   }
 
-  finalizeStreamingMessage(streamMsg, fullText, { msgId: asstMsgId, interrupted });
-  scrollToBottom();
+  if (isStreamVisible(convId, streamMsg)) {
+    finalizeStreamingMessage(streamMsg, fullText, { msgId: asstMsgId, interrupted });
+    scrollToBottom();
+  } else if (streamMsg.el.isConnected) {
+    streamMsg.el.remove();
+  }
+
   setGenerating(false);
   await refreshConvList();
 }
@@ -487,8 +506,12 @@ function setGenerating(v) {
   if (!v) { abortController = null; inputEl.focus(); }
 }
 
-stopBtn.addEventListener("click", () => {
+function cancelGeneration() {
   if (abortController) abortController.abort();
+}
+
+stopBtn.addEventListener("click", () => {
+  cancelGeneration();
 });
 
 // ── 消息操作事件委托 ──────────────────────────────────────────────────────────
@@ -603,6 +626,7 @@ async function createConversation() {
 }
 
 async function loadConversation(convId) {
+  cancelGeneration();
   try {
     const res = await fetch(`/api/conversations/${convId}`, { headers: apiHeaders() });
     const conv = await res.json();
@@ -708,6 +732,7 @@ function makeConvItem(conv) {
     if (!confirm(`删除对话「${conv.title}」？`)) return;
     await fetch(`/api/conversations/${conv.id}`, { method: "DELETE", headers: apiHeaders() });
     if (conv.id === activeConvId) {
+      cancelGeneration();
       activeConvId = null;
       history = [];
       messagesEl.innerHTML = `<div class="welcome" id="welcome">${WELCOME_HTML}</div>`;
@@ -727,6 +752,7 @@ function highlightActiveConv() {
 }
 
 newConvBtn.addEventListener("click", async () => {
+  cancelGeneration();
   const conv = await createConversation();
   if (!conv) return;
   messagesEl.innerHTML = `<div class="welcome" id="welcome">${WELCOME_HTML}</div>`;
