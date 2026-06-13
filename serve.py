@@ -43,7 +43,7 @@ class ChatRequest(BaseModel):
     prompt: str | None = Field(None, description="单轮用户输入")
     messages: list[Message] | None = Field(None, description="多轮对话历史")
     enable_thinking: bool = Field(False, description="是否开启思考模式")
-    max_new_tokens: int = Field(512, ge=1, le=4096)
+    max_new_tokens: int = Field(2048, ge=1, le=4096)
 
 
 class ChatResponse(BaseModel):
