@@ -102,6 +102,7 @@ def stream_chat_messages(
     *,
     enable_thinking: bool = False,
     max_new_tokens: int = 512,
+    cancel_event=None,
 ) -> Iterator[str]:
     inputs = _build_generation_inputs(tokenizer, model, messages, enable_thinking)
     streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
@@ -111,6 +112,8 @@ def stream_chat_messages(
     )
     thread.start()
     for chunk in streamer:
+        if cancel_event is not None and cancel_event.is_set():
+            break
         if chunk:
             yield chunk
     thread.join()

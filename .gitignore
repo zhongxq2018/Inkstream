@@ -8,6 +8,9 @@ __pycache__/
 # 模型权重体积大，需单独下载
 models/
 
+# 对话数据库与密钥
+data/
+
 # IDE / 本地配置
 .cursor/
 .idea/

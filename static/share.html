@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>墨涧 · 分享</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&family=Noto+Serif+SC:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink-deep: #0a0908; --ink-mid: #141210; --ink-soft: #1e1c19;
+      --paper: #e6ddd0; --paper-dim: #b8aea0;
+      --vermillion: #c0392b; --jade: #4a6b5d; --jade-soft: #6d9482;
+      --gold: #c9a227; --text-bright: #f4efe6; --text-muted: #8a8278;
+      --border: rgba(230,221,208,0.08);
+      --font-display: "ZCOOL XiaoWei","Noto Serif SC",serif;
+      --font-body: "Noto Serif SC","Songti SC",serif;
+    }
+    *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html,body { min-height: 100%; background: var(--ink-deep); color: var(--text-bright); font-family: var(--font-body); }
+
+    body::before {
+      content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 15% 10%, rgba(74,107,93,0.18), transparent 55%),
+        radial-gradient(ellipse 70% 50% at 85% 90%, rgba(192,57,43,0.12), transparent 50%),
+        radial-gradient(ellipse 100% 100% at 50% 50%, var(--ink-mid), var(--ink-deep));
+    }
+
+    .wrap {
+      position: relative; z-index: 1;
+      max-width: 780px; margin: 0 auto; padding: 40px 24px 80px;
+    }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 40px; padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { font-family: var(--font-display); font-size: 1.5rem; letter-spacing: 0.15em; color: var(--paper); }
+    .logo small { display: block; font-family: var(--font-body); font-size: 0.65rem; letter-spacing: 0.2em; color: var(--text-muted); margin-top: 2px; }
+    .share-meta { font-size: 0.72rem; color: var(--text-muted); text-align: right; }
+
+    .qa-block { display: flex; flex-direction: column; gap: 24px; }
+
+    .q-block, .a-block {
+      display: flex; gap: 16px; animation: fadeUp 0.5s ease both;
+    }
+    .a-block { animation-delay: 0.1s; }
+
+    .avatar {
+      width: 36px; height: 36px; border-radius: 4px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display); font-size: 0.85rem; align-self: flex-start;
+    }
+    .q-block .avatar { background: rgba(192,57,43,0.2); border: 1px solid rgba(192,57,43,0.4); color: #e85d4a; }
+    .a-block .avatar { background: rgba(74,107,93,0.25); border: 1px solid rgba(74,107,93,0.45); color: var(--jade-soft); }
+
+    .bubble {
+      flex: 1; padding: 16px 20px; border-radius: 4px 16px 4px 16px;
+      font-size: 0.92rem; line-height: 1.85; word-break: break-word;
+    }
+    .q-block .bubble { background: rgba(192,57,43,0.12); border: 1px solid rgba(192,57,43,0.2); border-radius: 16px 4px 16px 4px; white-space: pre-wrap; }
+    .a-block .bubble { background: rgba(230,221,208,0.05); border: 1px solid var(--border); }
+
+    /* Markdown */
+    .md-body > :first-child { margin-top: 0; }
+    .md-body > :last-child { margin-bottom: 0; }
+    .md-body p { margin: 0.6em 0; }
+    .md-body h1,.md-body h2,.md-body h3 { font-family: var(--font-display); color: var(--paper); margin: 1em 0 0.5em; }
+    .md-body h1 { font-size: 1.25rem; } .md-body h2 { font-size: 1.1rem; } .md-body h3 { font-size: 1rem; }
+    .md-body ul,.md-body ol { margin: 0.5em 0; padding-left: 1.4em; }
+    .md-body li { margin: 0.25em 0; }
+    .md-body code { font-family: "Cascadia Code","Consolas",monospace; font-size: 0.85em; background: rgba(10,9,8,0.45); padding: 0.15em 0.4em; border-radius: 3px; color: var(--gold); }
+    .md-body pre { margin: 0.75em 0; padding: 14px 16px; background: rgba(10,9,8,0.55); border: 1px solid var(--border); border-radius: 4px; overflow-x: auto; line-height: 1.6; }
+    .md-body pre code { background: none; padding: 0; color: var(--text-bright); font-size: 0.82em; }
+    .md-body blockquote { margin: 0.6em 0; padding: 0.4em 0 0.4em 0.9em; border-left: 3px solid var(--jade); color: var(--paper-dim); }
+    .md-body a { color: var(--jade-soft); text-decoration: underline; text-underline-offset: 2px; }
+    .md-body table { width: 100%; border-collapse: collapse; margin: 0.75em 0; font-size: 0.85em; }
+    .md-body th,.md-body td { border: 1px solid var(--border); padding: 8px 10px; }
+    .md-body th { background: rgba(74,107,93,0.2); color: var(--paper); }
+
+    .thinking-block { margin-bottom: 12px; padding: 10px 12px; background: rgba(201,162,39,0.06); border-left: 2px solid var(--gold); border-radius: 0 4px 4px 0; font-size: 0.8rem; line-height: 1.7; color: var(--paper-dim); font-style: italic; }
+    .thinking-label { font-size: 0.65rem; letter-spacing: 0.15em; color: var(--gold); margin-bottom: 4px; font-style: normal; }
+
+    .error-block { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+    .error-block h2 { font-family: var(--font-display); font-size: 1.4rem; margin-bottom: 12px; color: var(--paper); }
+
+    footer { margin-top: 48px; text-align: center; font-size: 0.7rem; color: var(--text-muted); letter-spacing: 0.1em; }
+    footer a { color: var(--jade-soft); text-decoration: none; }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">墨涧工坊<small>LOCAL · MODELSCOPE</small></div>
+      <div class="share-meta" id="shareMeta">分享内容加载中…</div>
+    </header>
+    <div id="content"></div>
+    <footer><a href="/">返回对话</a></footer>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
+  <script>
+    marked.setOptions({ breaks: true, gfm: true });
+
+    function renderMd(text) {
+      return DOMPurify.sanitize(marked.parse(text || ""), { USE_PROFILES: { html: true } });
+    }
+
+    function escHtml(s) {
+      return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    }
+
+    function parseReply(text) {
+      const thinkEnd = /<\/think>|<\/redacted_thinking>/i;
+      if (thinkEnd.test(text)) {
+        const idx = text.search(thinkEnd);
+        const endLen = text.match(thinkEnd)[0].length;
+        const thinking = text.slice(0, idx).replace(/^<(?:think|redacted_thinking)>\s*/i,"").trim();
+        const answer = text.slice(idx + endLen).trim();
+        return { thinking: thinking || null, answer: answer || text };
+      }
+      return { thinking: null, answer: text };
+    }
+
+    function fmtDate(iso) {
+      return new Date(iso + "Z").toLocaleString("zh-CN", {
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit",
+      });
+    }
+
+    async function load() {
+      const token = location.pathname.split("/share/")[1];
+      if (!token) { showError("无效链接"); return; }
+      try {
+        const res = await fetch(`/api/share/${token}`);
+        if (!res.ok) throw new Error("分享内容不存在或已失效");
+        const data = await res.json();
+        render(data);
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
+    function render(data) {
+      document.getElementById("shareMeta").textContent = `分享于 ${fmtDate(data.created_at)}`;
+      const { thinking, answer } = parseReply(data.answer);
+
+      const qBlock = document.createElement("div");
+      qBlock.className = "qa-block";
+
+      // 问
+      qBlock.innerHTML = `
+        <div class="q-block">
+          <div class="avatar">你</div>
+          <div class="bubble">${escHtml(data.question)}</div>
+        </div>`;
+
+      // 答
+      const aBlock = document.createElement("div");
+      aBlock.className = "a-block";
+
+      const avatar = document.createElement("div");
+      avatar.className = "avatar";
+      avatar.textContent = "涧";
+
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+
+      if (thinking) {
+        bubble.innerHTML = `<div class="thinking-block"><div class="thinking-label">思考过程</div>${escHtml(thinking)}</div>`;
+      }
+      const mdEl = document.createElement("div");
+      mdEl.className = "md-body";
+      mdEl.innerHTML = renderMd(answer);
+      bubble.appendChild(mdEl);
+
+      aBlock.appendChild(avatar);
+      aBlock.appendChild(bubble);
+      qBlock.appendChild(aBlock);
+
+      document.getElementById("content").appendChild(qBlock);
+    }
+
+    function showError(msg) {
+      document.getElementById("content").innerHTML = `
+        <div class="error-block">
+          <h2>无法加载内容</h2>
+          <p>${msg}</p>
+        </div>`;
+      document.getElementById("shareMeta").textContent = "";
+    }
+
+    load();
+  </script>
+</body>
+</html>
