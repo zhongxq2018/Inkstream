@@ -80,7 +80,7 @@ function showError(msg) {
 
 function showToast(msg) {
   errorToast.textContent = msg;
-  errorToast.style.background = "rgba(74,107,93,0.9)";
+  errorToast.style.background = "var(--toast-success-bg)";
   errorToast.classList.add("show");
   setTimeout(() => { errorToast.classList.remove("show"); errorToast.style.background = ""; }, 2500);
 }
@@ -835,20 +835,31 @@ sidebarOverlay?.addEventListener("click", closeSidebar);
 // ── 登录弹窗开关 ──────────────────────────────────────────────────────────────
 loginTriggerBtn?.addEventListener("click", e => {
   e.stopPropagation();
+  closeThemeDropdown();
   authDropdown.classList.toggle("open");
   if (authDropdown.classList.contains("open")) usernameInput.focus();
 });
 
 document.addEventListener("click", e => {
-  if (!authDropdown?.classList.contains("open")) return;
-  if (!authDropdown.contains(e.target) && e.target !== loginTriggerBtn) {
-    authDropdown.classList.remove("open");
+  if (authDropdown?.classList.contains("open")) {
+    if (!authDropdown.contains(e.target) && !loginTriggerBtn?.contains(e.target)) {
+      authDropdown.classList.remove("open");
+    }
+  }
+  if (themeDropdown?.classList.contains("open")) {
+    if (!themeFloater?.contains(e.target)) closeThemeDropdown();
+  }
+});
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    closeThemeDropdown();
+    authDropdown?.classList.remove("open");
   }
 });
 
 usernameInput?.addEventListener("keydown", e => {
   if (e.key === "Enter") loginBtn.click();
-  if (e.key === "Escape") authDropdown.classList.remove("open");
 });
 
 // ── 认证 ──────────────────────────────────────────────────────────────────────
@@ -915,6 +926,57 @@ logoutBtn.addEventListener("click", () => {
   refreshConvList();
 });
 
+// ── 主题切换 ──────────────────────────────────────────────────────────────────
+const THEME_KEY = "app_theme";
+const themeOptionsEl = document.getElementById("themeOptions");
+const themeTriggerBtn = document.getElementById("themeTriggerBtn");
+const themeDropdown = document.getElementById("themeDropdown");
+const themeFloater = document.getElementById("themeFloater");
+const themeCurrentSwatch = document.getElementById("themeCurrentSwatch");
+
+function closeThemeDropdown() {
+  themeDropdown?.classList.remove("open");
+  themeTriggerBtn?.setAttribute("aria-expanded", "false");
+}
+
+function applyTheme(name) {
+  document.documentElement.dataset.theme = name;
+  localStorage.setItem(THEME_KEY, name);
+  themeOptionsEl?.querySelectorAll(".theme-option").forEach(btn => {
+    const active = btn.dataset.theme === name;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-checked", active ? "true" : "false");
+  });
+  if (themeCurrentSwatch) {
+    themeCurrentSwatch.className = `theme-current-swatch theme-swatch theme-swatch--${name}`;
+  }
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY) || "ink";
+  applyTheme(saved);
+
+  themeTriggerBtn?.addEventListener("click", e => {
+    e.stopPropagation();
+    authDropdown?.classList.remove("open");
+    const opening = !themeDropdown?.classList.contains("open");
+    themeDropdown?.classList.toggle("open", opening);
+    themeTriggerBtn?.setAttribute("aria-expanded", opening ? "true" : "false");
+  });
+
+  themeOptionsEl?.addEventListener("click", e => {
+    const btn = e.target.closest(".theme-option");
+    if (!btn?.dataset.theme) return;
+    const next = btn.dataset.theme;
+    if (next !== document.documentElement.dataset.theme) {
+      document.documentElement.classList.add("theme-transition");
+      applyTheme(next);
+      setTimeout(() => document.documentElement.classList.remove("theme-transition"), 400);
+    }
+    closeThemeDropdown();
+  });
+}
+
 // ── 建议词 ────────────────────────────────────────────────────────────────────
 function bindSuggestions() {
   document.querySelectorAll(".suggestion").forEach(btn => {
@@ -924,6 +986,7 @@ function bindSuggestions() {
 
 // ── 初始化 ────────────────────────────────────────────────────────────────────
 async function init() {
+  initTheme();
   await initAuth();
   await refreshConvList();
 
