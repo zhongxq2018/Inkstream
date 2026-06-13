@@ -450,8 +450,101 @@
       font-size: 0.9rem;
       line-height: 1.85;
       border-radius: 4px 16px 4px 16px;
-      white-space: pre-wrap;
       word-break: break-word;
+    }
+
+    .msg.user .msg-content {
+      white-space: pre-wrap;
+    }
+
+    .msg-content .md-body > :first-child { margin-top: 0; }
+    .msg-content .md-body > :last-child { margin-bottom: 0; }
+
+    .msg-content .md-body p { margin: 0.6em 0; }
+    .msg-content .md-body h1,
+    .msg-content .md-body h2,
+    .msg-content .md-body h3,
+    .msg-content .md-body h4 {
+      font-family: var(--font-display);
+      color: var(--paper);
+      margin: 1em 0 0.5em;
+      line-height: 1.4;
+    }
+    .msg-content .md-body h1 { font-size: 1.25rem; }
+    .msg-content .md-body h2 { font-size: 1.1rem; }
+    .msg-content .md-body h3 { font-size: 1rem; }
+
+    .msg-content .md-body ul,
+    .msg-content .md-body ol {
+      margin: 0.5em 0;
+      padding-left: 1.4em;
+    }
+    .msg-content .md-body li { margin: 0.25em 0; }
+
+    .msg-content .md-body blockquote {
+      margin: 0.6em 0;
+      padding: 0.4em 0 0.4em 0.9em;
+      border-left: 3px solid var(--jade);
+      color: var(--paper-dim);
+    }
+
+    .msg-content .md-body code {
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 0.85em;
+      background: rgba(10, 9, 8, 0.45);
+      padding: 0.15em 0.4em;
+      border-radius: 3px;
+      color: var(--gold);
+    }
+
+    .msg-content .md-body pre {
+      margin: 0.75em 0;
+      padding: 14px 16px;
+      background: rgba(10, 9, 8, 0.55);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow-x: auto;
+      line-height: 1.6;
+    }
+
+    .msg-content .md-body pre code {
+      background: none;
+      padding: 0;
+      color: var(--text-bright);
+      font-size: 0.82em;
+    }
+
+    .msg-content .md-body a {
+      color: var(--jade-soft);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .msg-content .md-body a:hover { color: var(--paper); }
+
+    .msg-content .md-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75em 0;
+      font-size: 0.85em;
+    }
+
+    .msg-content .md-body th,
+    .msg-content .md-body td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: left;
+    }
+
+    .msg-content .md-body th {
+      background: rgba(74, 107, 93, 0.2);
+      color: var(--paper);
+    }
+
+    .msg-content .md-body hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 1em 0;
     }
 
     .msg.user .msg-content {
@@ -736,6 +829,8 @@
 
   <div class="error-toast" id="errorToast"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
   <script>
     const messagesEl = document.getElementById("messages");
     const welcomeEl = document.getElementById("welcome");
@@ -849,8 +944,8 @@
         wrapper.contentEl.appendChild(thinkBlock);
       }
 
-      const answerEl = document.createElement("span");
-      answerEl.textContent = answer || fullText;
+      const answerEl = document.createElement("div");
+      setAnswerContent(answerEl, answer || fullText);
       wrapper.contentEl.appendChild(answerEl);
     }
 
@@ -902,8 +997,13 @@
         contentEl.appendChild(thinkBlock);
       }
 
-      const answerEl = document.createElement("span");
-      answerEl.textContent = content;
+      const answerEl = document.createElement(role === "assistant" ? "div" : "span");
+      if (role === "assistant") {
+        const { answer } = parseReply(content);
+        setAnswerContent(answerEl, answer || content);
+      } else {
+        answerEl.textContent = content;
+      }
       contentEl.appendChild(answerEl);
 
       body.appendChild(meta);
@@ -915,6 +1015,23 @@
 
     function escapeHtml(str) {
       return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    marked.setOptions({ breaks: true, gfm: true });
+
+    function renderMarkdown(text) {
+      if (!text) return "";
+      const raw = marked.parse(text);
+      return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+    }
+
+    function setAnswerContent(el, text, { streaming = false } = {}) {
+      el.className = streaming ? "stream-text" : "md-body";
+      if (streaming) {
+        el.textContent = text;
+        return;
+      }
+      el.innerHTML = renderMarkdown(text);
     }
 
     function showTyping() {
