@@ -22,7 +22,6 @@ const maxTokensVal = document.getElementById("maxTokensValue");
 const statusDot    = document.getElementById("statusDot");
 const statusLabel  = document.getElementById("statusLabel");
 const statusDetail = document.getElementById("statusDetail");
-const modelBadge   = document.getElementById("modelBadge");
 const errorToast   = document.getElementById("errorToast");
 const convListEl   = document.getElementById("convList");
 const newConvBtn   = document.getElementById("newConvBtn");
@@ -162,10 +161,8 @@ async function checkHealth() {
     const data = await res.json();
     statusDot.className = "status-dot online";
     statusLabel.textContent = "服务在线";
-    const modelName = data.model?.split(/[\\/]/).pop() || "Qwen3.5-0.8B";
-    const accessUrl = data.urls?.lan || window.location.origin + "/";
-    statusDetail.innerHTML = `${modelName} · ${data.device?.toUpperCase()||"CPU"}<br><a href="${accessUrl}" style="color:var(--jade-soft)">${accessUrl}</a>`;
-    if (modelBadge) modelBadge.textContent = `${modelName} · ${data.device?.toUpperCase()||"CPU"}`;
+    const accessUrl = window.location.origin + "/";
+    statusDetail.innerHTML = `<a href="${accessUrl}" style="color:var(--jade-soft)">${accessUrl}</a>`;
     return true;
   } catch {
     statusDot.className = "status-dot offline";

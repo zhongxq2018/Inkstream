@@ -1,5 +1,6 @@
 """Qwen3.5-0.8B 本地 HTTP API + 对话管理 + 认证 + 分享。"""
 import asyncio
+import ipaddress
 import json
 import socket
 from contextlib import asynccontextmanager
@@ -25,13 +26,36 @@ STATIC_DIR = Path(__file__).parent / "static"
 GENERATION_LOCK = Lock()
 
 
+def _is_usable_lan_ip(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if addr.is_loopback or addr.is_link_local or addr.is_multicast:
+        return False
+    # Clash / Surge 等代理 TUN 模式常用的假 IP 段，不能作为局域网访问地址
+    if addr in ipaddress.ip_network("198.18.0.0/15"):
+        return False
+    return addr.is_private
+
+
 def get_local_ip() -> str:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.connect(("8.8.8.8", 80))
-            return sock.getsockname()[0]
+            ip = sock.getsockname()[0]
+            if _is_usable_lan_ip(ip):
+                return ip
     except OSError:
-        return "127.0.0.1"
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if _is_usable_lan_ip(ip):
+                return ip
+    except OSError:
+        pass
+    return "127.0.0.1"
 
 
 LOCAL_IP = get_local_ip()
