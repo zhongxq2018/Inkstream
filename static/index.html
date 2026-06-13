@@ -78,7 +78,12 @@
       font-family: var(--font-display); font-size: 1.8rem; font-weight: 400;
       letter-spacing: 0.15em; color: var(--paper); margin-bottom: 4px;
     }
-    .brand p { font-size: 0.78rem; line-height: 1.6; color: var(--text-muted); }
+    .brand p { font-size: 0.78rem; line-height: 1.6; color: var(--text-muted); margin-bottom: 10px; }
+    .brand-model-intro {
+      font-size: 0.72rem; line-height: 1.65; color: var(--paper-dim);
+      padding-top: 10px; margin-top: 2px;
+      border-top: 1px solid rgba(var(--rgb-paper), 0.08);
+    }
 
     /* ── Auth area (top-right) ── */
     .auth-trigger {
@@ -505,6 +510,9 @@
         <div class="brand-tag">local · llm</div>
         <h1>墨涧工坊</h1>
         <p>Qwen3.5-0.8B 本地推理<br />数据不出本机</p>
+        <div class="brand-model-intro">
+          通义千问 3.5 轻量版，约 8 亿参数，面向本机 CPU 对话与低延迟推理。
+        </div>
       </div>
 
       <!-- 状态 -->
