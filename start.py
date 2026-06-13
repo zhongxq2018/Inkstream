@@ -1,6 +1,8 @@
 """一键安装依赖、下载模型（若缺失）并启动本地对话服务。"""
 from __future__ import annotations
 
+import json
+import socket
 import subprocess
 import sys
 import time
@@ -17,7 +19,6 @@ PORT = 8000
 HEALTH_URL = f"http://127.0.0.1:{PORT}/health"
 APP_URL = f"http://127.0.0.1:{PORT}/"
 STARTUP_TIMEOUT_SEC = 600
-
 
 def _venv_python() -> Path:
     if sys.platform == "win32":
@@ -81,17 +82,111 @@ def download_model(python: Path) -> None:
     _run([str(python), str(ROOT / "download_model.py")])
 
 
-def wait_for_health() -> None:
+def _parse_health_payload(raw: bytes) -> dict | None:
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("status") != "ok":
+        return None
+    if not data.get("model"):
+        return None
+    if data.get("port") != PORT:
+        return None
+    return data
+
+
+def fetch_health() -> dict | None:
+    try:
+        with urllib.request.urlopen(HEALTH_URL, timeout=2) as response:
+            if response.status != 200:
+                return None
+            return _parse_health_payload(response.read())
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
+
+
+def service_is_running() -> bool:
+    return fetch_health() is not None
+
+
+def port_is_in_use() -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(("127.0.0.1", PORT)) == 0
+
+
+def describe_port_blocker() -> str:
+    if sys.platform == "win32":
+        try:
+            result = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5,
+            )
+            for line in result.stdout.splitlines():
+                if f":{PORT}" not in line or "LISTENING" not in line:
+                    continue
+                pid = line.split()[-1]
+                tasklist = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                name = tasklist.stdout.strip().strip('"') or f"PID {pid}"
+                return name
+        except (subprocess.SubprocessError, OSError, ValueError):
+            pass
+    else:
+        for cmd in (
+            ["ss", "-ltnp", f"sport = :{PORT}"],
+            ["lsof", "-i", f":{PORT}", "-sTCP:LISTEN"],
+        ):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                lines = [line for line in result.stdout.splitlines() if line.strip()]
+                if lines:
+                    return lines[-1]
+            except (subprocess.SubprocessError, OSError, FileNotFoundError):
+                continue
+    return f"未知进程（端口 {PORT}）"
+
+
+def ensure_port_free_for_startup() -> None:
+    if not port_is_in_use():
+        return
+    blocker = describe_port_blocker()
+    raise RuntimeError(
+        f"端口 {PORT} 已被其他程序占用: {blocker}\n"
+        f"请关闭占用进程，或修改 serve.py / start.py 中的 PORT 后重试。"
+    )
+
+
+def wait_for_health(proc: subprocess.Popen[str] | None = None) -> None:
     print(f"等待服务就绪（模型加载可能需要数分钟）: {HEALTH_URL}")
     deadline = time.time() + STARTUP_TIMEOUT_SEC
     while time.time() < deadline:
-        try:
-            with urllib.request.urlopen(HEALTH_URL, timeout=2) as response:
-                if response.status == 200:
-                    print("服务已就绪。")
-                    return
-        except (urllib.error.URLError, TimeoutError, OSError):
-            time.sleep(1)
+        if proc is not None:
+            exit_code = proc.poll()
+            if exit_code is not None:
+                raise RuntimeError(
+                    f"服务进程已退出（退出码 {exit_code}），"
+                    f"常见原因是端口 {PORT} 被占用。请查看上方 serve.py 日志。"
+                )
+        if service_is_running():
+            print("服务已就绪。")
+            return
+        time.sleep(1)
     raise TimeoutError(f"在 {STARTUP_TIMEOUT_SEC} 秒内未能启动服务，请查看上方日志。")
 
 
@@ -101,6 +196,15 @@ def main() -> int:
     print("=" * 60)
 
     try:
+        if service_is_running():
+            print(f"\n检测到服务已在运行: {APP_URL}")
+            webbrowser.open(APP_URL)
+            print(f"已在浏览器打开: {APP_URL}")
+            print("关闭首次启动时打开的命令行窗口可停止服务。\n")
+            return 0
+
+        ensure_port_free_for_startup()
+
         python = ensure_venv()
         install_dependencies(python)
 
@@ -114,7 +218,7 @@ def main() -> int:
         proc = subprocess.Popen([str(python), str(ROOT / "serve.py")], cwd=ROOT)
 
         try:
-            wait_for_health()
+            wait_for_health(proc)
             webbrowser.open(APP_URL)
             print(f"已在浏览器打开: {APP_URL}")
             print("关闭本窗口或按 Ctrl+C 可停止服务。\n")
