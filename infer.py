@@ -1,4 +1,4 @@
-"""Qwen3-0.6B 本地推理示例（CPU 友好）。"""
+"""Qwen3.5-0.8B 本地推理示例（CPU 友好）。"""
 import argparse
 from collections.abc import Iterator
 from pathlib import Path
@@ -7,7 +7,7 @@ from threading import Thread
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
-MODEL_ID = "Qwen/Qwen3-0.6B"
+MODEL_ID = "Qwen/Qwen3.5-0.8B"
 MODELS_ROOT = Path("./models/Qwen")
 
 
@@ -17,17 +17,24 @@ def resolve_model_path(model_path: str | None) -> str:
 
     # ModelScope 下载后目录名中的 "." 会变成 "___"
     candidates = [
-        MODELS_ROOT / "Qwen3-0.6B",
-        MODELS_ROOT / "Qwen3-0___6B",
+        MODELS_ROOT / "Qwen3.5-0.8B",
+        MODELS_ROOT / "Qwen3___5-0___8B",
     ]
     for candidate in candidates:
         if (candidate / "config.json").exists():
             return str(candidate)
 
     if MODELS_ROOT.exists():
-        for candidate in MODELS_ROOT.iterdir():
-            if candidate.is_dir() and (candidate / "config.json").exists():
+        local_models = [
+            candidate
+            for candidate in MODELS_ROOT.iterdir()
+            if candidate.is_dir() and (candidate / "config.json").exists()
+        ]
+        for candidate in local_models:
+            if "3.5" in candidate.name or "3___5" in candidate.name:
                 return str(candidate)
+        if local_models:
+            return str(local_models[0])
 
     return MODEL_ID
 
@@ -37,7 +44,7 @@ def load_model(model_path: str, device: str):
     dtype = torch.float32 if device == "cpu" else "auto"
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        torch_dtype=dtype,
+        dtype=dtype,
         device_map=device if device != "cpu" else None,
         trust_remote_code=True,
         low_cpu_mem_usage=True,
@@ -132,7 +139,7 @@ def chat(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Qwen3-0.6B 本地推理")
+    parser = argparse.ArgumentParser(description="Qwen3.5-0.8B 本地推理")
     parser.add_argument("--model-path", default=None, help="本地模型目录，默认自动查找 ./models/Qwen/")
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="推理设备")
     parser.add_argument("--prompt", default="用三句话介绍一下你自己。", help="用户问题")

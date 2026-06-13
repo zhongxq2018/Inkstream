@@ -662,7 +662,7 @@
       <div class="brand">
         <div class="brand-tag">Local · ModelScope</div>
         <h1>墨涧工坊</h1>
-        <p>Qwen3-0.6B 本地推理<br />数据不出本机，对话即部署</p>
+        <p>Qwen3.5-0.8B 本地推理<br />数据不出本机，对话即部署</p>
       </div>
 
       <div class="status-card">
@@ -698,7 +698,7 @@
     <main class="main">
       <header class="chat-header">
         <h2>对话</h2>
-        <span id="modelBadge">Qwen3-0.6B · CPU</span>
+        <span id="modelBadge">Qwen3.5-0.8B · CPU</span>
       </header>
 
       <div class="messages" id="messages">
@@ -764,7 +764,7 @@
         const data = await res.json();
         statusDot.className = "status-dot online";
         statusLabel.textContent = "服务在线";
-        const modelName = data.model?.split(/[\\/]/).pop() || "Qwen3-0.6B";
+        const modelName = data.model?.split(/[\\/]/).pop() || "Qwen3.5-0.8B";
         const accessUrl = data.urls?.lan || window.location.origin + "/";
         statusDetail.innerHTML = `${modelName} · ${data.device?.toUpperCase() || "CPU"}<br><a href="${accessUrl}" style="color:var(--jade-soft)">${accessUrl}</a>`;
         modelBadge.textContent = `${modelName} · ${data.device?.toUpperCase() || "CPU"}`;

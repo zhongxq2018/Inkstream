@@ -1,4 +1,4 @@
-"""把 Qwen3-0.6B 包装成本地 HTTP API，并提供对话 Web 界面。"""
+"""把 Qwen3.5-0.8B 包装成本地 HTTP API，并提供对话 Web 界面。"""
 import json
 import socket
 from contextlib import asynccontextmanager
@@ -69,7 +69,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Qwen3-0.6B Local API", lifespan=lifespan)
+app = FastAPI(title="Qwen3.5-0.8B Local API", lifespan=lifespan)
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
