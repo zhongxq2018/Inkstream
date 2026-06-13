@@ -6,6 +6,9 @@ let history = [];          // 当前对话消息数组 {role, content}
 let isGenerating = false;
 let abortController = null;
 let activeConvId = null;   // 当前对话 ID
+let stopRequested = false;
+/** @type {Map<string, { convId: string, fullText: string, streamMsg: object|null, abortController: AbortController, done: boolean, uiListeners: Function[] }>} */
+const activeGenerations = new Map();
 
 // ── DOM 引用 ──────────────────────────────────────────────────────────────────
 const messagesEl   = document.getElementById("messages");
@@ -373,12 +376,30 @@ async function consumeStream(response, onChunk) {
 
 // ── 发送消息（主流程）─────────────────────────────────────────────────────────
 function isStreamVisible(convId, streamMsg) {
-  return activeConvId === convId && streamMsg.el.isConnected;
+  return streamMsg?.el?.isConnected && activeConvId === convId;
+}
+
+function attachGenerationUI(job) {
+  job.streamMsg = createStreamingMessage();
+  job.streamMsg.answerEl.textContent = job.fullText;
+  scrollToBottom();
+}
+
+function notifyGenerationUI(job) {
+  if (isStreamVisible(job.convId, job.streamMsg)) {
+    job.streamMsg.answerEl.textContent = job.fullText;
+    scrollToBottom();
+  }
+  for (const fn of job.uiListeners) fn();
 }
 
 async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}) {
   const prompt = text.trim();
   if (!prompt || isGenerating) return;
+  if (activeGenerations.size > 0) {
+    showError("请等待当前回答完成");
+    return;
+  }
 
   const online = await checkHealth();
   if (!online) { showError("模型服务未启动，请先运行 serve.py"); return; }
@@ -424,21 +445,28 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
   }
 
   inputEl.value = ""; inputEl.style.height = "auto";
+
+  const job = {
+    convId,
+    fullText: "",
+    streamMsg: null,
+    abortController: new AbortController(),
+    done: false,
+    uiListeners: [],
+  };
+  activeGenerations.set(convId, job);
+  abortController = job.abortController;
   setGenerating(true);
 
-  const streamMsg = activeConvId === convId
-    ? createStreamingMessage()
-    : { el: document.createElement("div"), contentEl: null, answerEl: { textContent: "" } };
-  let fullText = "";
-  let interrupted = false;
+  if (activeConvId === convId) attachGenerationUI(job);
 
-  abortController = new AbortController();
+  let interrupted = false;
 
   try {
     const res = await fetch("/chat/stream", {
       method: "POST",
       headers: apiHeaders(),
-      signal: abortController.signal,
+      signal: job.abortController.signal,
       body: JSON.stringify({
         messages: requestHistory,
         enable_thinking: thinkingTog.checked,
@@ -452,48 +480,52 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
     }
 
     await consumeStream(res, chunk => {
-      fullText += chunk;
-      if (!isStreamVisible(convId, streamMsg)) return;
-      streamMsg.answerEl.textContent = fullText;
-      scrollToBottom();
+      job.fullText += chunk;
+      notifyGenerationUI(job);
     });
   } catch (err) {
     if (err.name === "AbortError") {
-      interrupted = true;
+      interrupted = stopRequested;
+      stopRequested = false;
     } else {
-      if (isStreamVisible(convId, streamMsg)) streamMsg.el.remove();
+      if (isStreamVisible(convId, job.streamMsg)) job.streamMsg.el.remove();
       if (activeConvId === convId) history.pop();
       showError(err.message || "生成失败，请重试");
-      setGenerating(false);
+      activeGenerations.delete(convId);
+      if (activeConvId === convId) setGenerating(false);
       return;
     }
   }
 
-  // 保存 assistant 消息（中断时有内容也保存到原对话）
+  // 保存 assistant 消息（仅用户主动停止时标记已中断）
   let asstMsgId = null;
-  if (fullText) {
+  if (job.fullText) {
     const asstMsgRes = await fetch(`/api/conversations/${convId}/messages`, {
       method: "POST", headers: apiHeaders(),
-      body: JSON.stringify({ role: "assistant", content: fullText + (interrupted ? "\n（已中断）" : "") }),
+      body: JSON.stringify({ role: "assistant", content: job.fullText + (interrupted ? "\n（已中断）" : "") }),
     });
     const asstMsg = await asstMsgRes.json();
     asstMsgId = asstMsg.id;
-    if (activeConvId === convId) history.push({ role: "assistant", content: fullText });
+    if (activeConvId === convId) history.push({ role: "assistant", content: job.fullText });
   } else if (interrupted) {
-    if (isStreamVisible(convId, streamMsg)) streamMsg.el.remove();
-    setGenerating(false);
+    if (isStreamVisible(convId, job.streamMsg)) job.streamMsg.el.remove();
+    job.done = true;
+    activeGenerations.delete(convId);
+    if (activeConvId === convId) setGenerating(false);
     await refreshConvList();
     return;
   }
 
-  if (isStreamVisible(convId, streamMsg)) {
-    finalizeStreamingMessage(streamMsg, fullText, { msgId: asstMsgId, interrupted });
+  if (isStreamVisible(convId, job.streamMsg)) {
+    finalizeStreamingMessage(job.streamMsg, job.fullText, { msgId: asstMsgId, interrupted });
     scrollToBottom();
-  } else if (streamMsg.el.isConnected) {
-    streamMsg.el.remove();
+  } else if (job.streamMsg?.el?.isConnected) {
+    job.streamMsg.el.remove();
   }
 
-  setGenerating(false);
+  job.done = true;
+  activeGenerations.delete(convId);
+  if (activeConvId === convId) setGenerating(false);
   await refreshConvList();
 }
 
@@ -503,15 +535,33 @@ function setGenerating(v) {
   sendBtn.style.display = v ? "none" : "flex";
   stopBtn.style.display = v ? "flex" : "none";
   inputEl.disabled = v;
-  if (!v) { abortController = null; inputEl.focus(); }
+  if (!v) {
+    const viewingGenerating = activeConvId && activeGenerations.has(activeConvId);
+    if (!viewingGenerating) abortController = null;
+    inputEl.focus();
+  }
 }
 
-function cancelGeneration() {
-  if (abortController) abortController.abort();
+function stopGeneration() {
+  const job = activeConvId ? activeGenerations.get(activeConvId) : null;
+  if (!job || job.done) return;
+  stopRequested = true;
+  job.abortController.abort();
+}
+
+function detachGenerationUI() {
+  if (isGenerating) setGenerating(false);
+}
+
+function abortGenerationForConv(convId) {
+  const job = activeGenerations.get(convId);
+  if (!job || job.done) return;
+  stopRequested = true;
+  job.abortController.abort();
 }
 
 stopBtn.addEventListener("click", () => {
-  cancelGeneration();
+  stopGeneration();
 });
 
 // ── 消息操作事件委托 ──────────────────────────────────────────────────────────
@@ -626,7 +676,7 @@ async function createConversation() {
 }
 
 async function loadConversation(convId) {
-  cancelGeneration();
+  detachGenerationUI();
   try {
     const res = await fetch(`/api/conversations/${convId}`, { headers: apiHeaders() });
     const conv = await res.json();
@@ -635,6 +685,13 @@ async function loadConversation(convId) {
     history = conv.messages.map(m => ({ role: m.role, content: m.content }));
     renderMessages(conv.messages);
     highlightActiveConv();
+
+    const job = activeGenerations.get(convId);
+    if (job && !job.done) {
+      attachGenerationUI(job);
+      abortController = job.abortController;
+      setGenerating(true);
+    }
   } catch {
     showError("加载对话失败");
   }
@@ -730,14 +787,16 @@ function makeConvItem(conv) {
   delBtn.addEventListener("click", async e => {
     e.stopPropagation();
     if (!confirm(`删除对话「${conv.title}」？`)) return;
+    abortGenerationForConv(conv.id);
     await fetch(`/api/conversations/${conv.id}`, { method: "DELETE", headers: apiHeaders() });
+    activeGenerations.delete(conv.id);
     if (conv.id === activeConvId) {
-      cancelGeneration();
       activeConvId = null;
       history = [];
       messagesEl.innerHTML = `<div class="welcome" id="welcome">${WELCOME_HTML}</div>`;
       chatTitle.textContent = "对话";
       bindSuggestions();
+      setGenerating(false);
     }
     refreshConvList();
   });
@@ -752,7 +811,7 @@ function highlightActiveConv() {
 }
 
 newConvBtn.addEventListener("click", async () => {
-  cancelGeneration();
+  detachGenerationUI();
   const conv = await createConversation();
   if (!conv) return;
   messagesEl.innerHTML = `<div class="welcome" id="welcome">${WELCOME_HTML}</div>`;
