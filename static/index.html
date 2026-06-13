@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>墨涧 · Qwen3 本地对话</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&family=Noto+Serif+SC:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink-deep: #0a0908;
+      --ink-mid: #141210;
+      --ink-soft: #1e1c19;
+      --paper: #e6ddd0;
+      --paper-dim: #b8aea0;
+      --vermillion: #c0392b;
+      --vermillion-glow: #e85d4a;
+      --jade: #4a6b5d;
+      --jade-soft: #6d9482;
+      --gold: #c9a227;
+      --text-bright: #f4efe6;
+      --text-muted: #8a8278;
+      --border: rgba(230, 221, 208, 0.08);
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+      --font-display: "ZCOOL XiaoWei", "Noto Serif SC", serif;
+      --font-body: "Noto Serif SC", "Songti SC", serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--ink-deep);
+      color: var(--text-bright);
+      font-family: var(--font-body);
+      overflow: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 15% 10%, rgba(74, 107, 93, 0.18), transparent 55%),
+        radial-gradient(ellipse 70% 50% at 85% 90%, rgba(192, 57, 43, 0.12), transparent 50%),
+        radial-gradient(ellipse 100% 100% at 50% 50%, var(--ink-mid), var(--ink-deep));
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      opacity: 0.35;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      height: 100vh;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      gap: 20px;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      animation: slideIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .brand {
+      padding: 28px 24px 24px;
+      background: var(--ink-soft);
+      border: 1px solid var(--border);
+      border-radius: 4px 24px 4px 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .brand::before {
+      content: "涧";
+      position: absolute;
+      right: -8px;
+      bottom: -20px;
+      font-family: var(--font-display);
+      font-size: 7rem;
+      color: rgba(230, 221, 208, 0.04);
+      line-height: 1;
+      pointer-events: none;
+    }
+
+    .brand-tag {
+      display: inline-block;
+      font-size: 0.65rem;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--jade-soft);
+      margin-bottom: 10px;
+    }
+
+    .brand h1 {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      font-weight: 400;
+      letter-spacing: 0.15em;
+      color: var(--paper);
+      margin-bottom: 8px;
+    }
+
+    .brand p {
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--text-muted);
+    }
+
+    .status-card {
+      padding: 18px 20px;
+      background: var(--ink-soft);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      flex-shrink: 0;
+      transition: background 0.4s, box-shadow 0.4s;
+    }
+
+    .status-dot.online {
+      background: var(--jade-soft);
+      box-shadow: 0 0 12px rgba(109, 148, 130, 0.6);
+    }
+
+    .status-dot.offline {
+      background: var(--vermillion);
+      box-shadow: 0 0 12px rgba(192, 57, 43, 0.5);
+    }
+
+    .status-dot.loading {
+      background: var(--gold);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    .status-label {
+      font-size: 0.8rem;
+      color: var(--paper-dim);
+    }
+
+    .status-detail {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      word-break: break-all;
+    }
+
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 18px 20px;
+      background: var(--ink-soft);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      flex: 1;
+    }
+
+    .control-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      cursor: pointer;
+    }
+
+    .toggle input { opacity: 0; width: 0; height: 0; }
+
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: var(--ink-mid);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    .toggle input:checked + .toggle-track {
+      background: rgba(74, 107, 93, 0.4);
+      border-color: var(--jade);
+    }
+
+    .toggle-thumb {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 16px;
+      height: 16px;
+      background: var(--paper-dim);
+      border-radius: 50%;
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s;
+    }
+
+    .toggle input:checked ~ .toggle-thumb {
+      transform: translateX(20px);
+      background: var(--jade-soft);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      -webkit-appearance: none;
+      height: 3px;
+      background: var(--ink-mid);
+      border-radius: 2px;
+      outline: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      background: var(--vermillion);
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(192, 57, 43, 0.5);
+    }
+
+    .range-value {
+      font-size: 0.75rem;
+      color: var(--gold);
+      text-align: right;
+      margin-top: 4px;
+    }
+
+    .btn-clear {
+      margin-top: auto;
+      padding: 10px 16px;
+      background: transparent;
+      border: 1px solid rgba(192, 57, 43, 0.35);
+      color: var(--vermillion-glow);
+      font-family: var(--font-body);
+      font-size: 0.8rem;
+      letter-spacing: 0.1em;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: background 0.25s, border-color 0.25s;
+    }
+
+    .btn-clear:hover {
+      background: rgba(192, 57, 43, 0.12);
+      border-color: var(--vermillion);
+    }
+
+    /* ── Main chat ── */
+    .main {
+      display: flex;
+      flex-direction: column;
+      background: var(--ink-soft);
+      border: 1px solid var(--border);
+      border-radius: 24px 4px 24px 4px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      animation: fadeUp 0.8s 0.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .chat-header {
+      padding: 20px 28px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .chat-header h2 {
+      font-family: var(--font-display);
+      font-size: 1.1rem;
+      font-weight: 400;
+      letter-spacing: 0.2em;
+      color: var(--paper);
+    }
+
+    .chat-header span {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      scroll-behavior: smooth;
+    }
+
+    .messages::-webkit-scrollbar { width: 4px; }
+    .messages::-webkit-scrollbar-track { background: transparent; }
+    .messages::-webkit-scrollbar-thumb {
+      background: var(--jade);
+      border-radius: 2px;
+    }
+
+    .welcome {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      text-align: center;
+      padding: 40px 20px;
+      animation: fadeUp 0.6s ease both;
+    }
+
+    .welcome-seal {
+      width: 64px;
+      height: 64px;
+      border: 2px solid var(--vermillion);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-display);
+      font-size: 2rem;
+      color: var(--vermillion);
+      margin-bottom: 20px;
+      transform: rotate(-3deg);
+      box-shadow: 0 0 30px rgba(192, 57, 43, 0.2);
+    }
+
+    .welcome h3 {
+      font-family: var(--font-display);
+      font-size: 1.4rem;
+      letter-spacing: 0.15em;
+      color: var(--paper);
+      margin-bottom: 10px;
+    }
+
+    .welcome p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.8;
+      max-width: 320px;
+    }
+
+    .suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 24px;
+    }
+
+    .suggestion {
+      padding: 8px 14px;
+      background: rgba(230, 221, 208, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 2px 12px 2px 12px;
+      font-size: 0.78rem;
+      color: var(--paper-dim);
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+
+    .suggestion:hover {
+      background: rgba(74, 107, 93, 0.2);
+      color: var(--paper);
+      border-color: rgba(74, 107, 93, 0.4);
+    }
+
+    .msg {
+      display: flex;
+      gap: 14px;
+      animation: msgIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .msg.user { flex-direction: row-reverse; }
+
+    .msg-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-display);
+      font-size: 0.85rem;
+    }
+
+    .msg.user .msg-avatar {
+      background: rgba(192, 57, 43, 0.2);
+      border: 1px solid rgba(192, 57, 43, 0.4);
+      color: var(--vermillion-glow);
+    }
+
+    .msg.assistant .msg-avatar {
+      background: rgba(74, 107, 93, 0.25);
+      border: 1px solid rgba(74, 107, 93, 0.45);
+      color: var(--jade-soft);
+    }
+
+    .msg-body {
+      max-width: 72%;
+    }
+
+    .msg-meta {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      letter-spacing: 0.08em;
+    }
+
+    .msg.user .msg-meta { text-align: right; }
+
+    .msg-content {
+      padding: 14px 18px;
+      font-size: 0.9rem;
+      line-height: 1.85;
+      border-radius: 4px 16px 4px 16px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .msg.user .msg-content {
+      background: rgba(192, 57, 43, 0.12);
+      border: 1px solid rgba(192, 57, 43, 0.2);
+      border-radius: 16px 4px 16px 4px;
+      color: var(--paper);
+    }
+
+    .msg.assistant .msg-content {
+      background: rgba(230, 221, 208, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-bright);
+    }
+
+    .thinking-block {
+      margin-bottom: 12px;
+      padding: 12px 14px;
+      background: rgba(201, 162, 39, 0.06);
+      border-left: 2px solid var(--gold);
+      border-radius: 0 4px 4px 0;
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: var(--paper-dim);
+      font-style: italic;
+    }
+
+    .thinking-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      color: var(--gold);
+      margin-bottom: 6px;
+      font-style: normal;
+    }
+
+    .typing-indicator {
+      display: flex;
+      gap: 5px;
+      padding: 16px 18px;
+      align-items: center;
+    }
+
+    .typing-indicator span {
+      width: 6px;
+      height: 6px;
+      background: var(--jade-soft);
+      border-radius: 50%;
+      animation: typing 1.2s ease-in-out infinite;
+    }
+
+    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+    /* ── Input area ── */
+    .input-area {
+      padding: 20px 24px 24px;
+      border-top: 1px solid var(--border);
+      background: rgba(10, 9, 8, 0.4);
+    }
+
+    .input-wrap {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+    }
+
+    .input-field {
+      flex: 1;
+      position: relative;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 52px;
+      max-height: 160px;
+      padding: 14px 18px;
+      background: var(--ink-mid);
+      border: 1px solid var(--border);
+      border-radius: 4px 16px 4px 16px;
+      color: var(--paper);
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      line-height: 1.6;
+      resize: none;
+      outline: none;
+      transition: border-color 0.25s, box-shadow 0.25s;
+    }
+
+    textarea:focus {
+      border-color: rgba(74, 107, 93, 0.5);
+      box-shadow: 0 0 0 3px rgba(74, 107, 93, 0.12);
+    }
+
+    textarea::placeholder { color: var(--text-muted); }
+
+    .btn-send {
+      width: 52px;
+      height: 52px;
+      flex-shrink: 0;
+      background: var(--vermillion);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+      box-shadow: 0 4px 20px rgba(192, 57, 43, 0.35);
+    }
+
+    .btn-send:hover:not(:disabled) {
+      background: var(--vermillion-glow);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 28px rgba(192, 57, 43, 0.45);
+    }
+
+    .btn-send:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .btn-send svg {
+      width: 20px;
+      height: 20px;
+      fill: var(--paper);
+    }
+
+    .msg.assistant.streaming .msg-content {
+      border-color: rgba(74, 107, 93, 0.35);
+    }
+
+    .stream-text::after {
+      content: "▍";
+      color: var(--jade-soft);
+      animation: blink 1s step-end infinite;
+      margin-left: 1px;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    .input-hint {
+      margin-top: 10px;
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+
+    .error-toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      padding: 12px 24px;
+      background: rgba(192, 57, 43, 0.9);
+      color: var(--paper);
+      font-size: 0.82rem;
+      border-radius: 4px;
+      z-index: 100;
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
+    }
+
+    .error-toast.show {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-20px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes typing {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-6px); opacity: 1; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    @media (max-width: 768px) {
+      .app {
+        grid-template-columns: 1fr;
+        padding: 12px;
+      }
+      .sidebar { display: none; }
+      .msg-body { max-width: 88%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-tag">Local · ModelScope</div>
+        <h1>墨涧工坊</h1>
+        <p>Qwen3-0.6B 本地推理<br />数据不出本机，对话即部署</p>
+      </div>
+
+      <div class="status-card">
+        <div class="status-row">
+          <div class="status-dot loading" id="statusDot"></div>
+          <span class="status-label" id="statusLabel">连接中…</span>
+        </div>
+        <div class="status-detail" id="statusDetail">正在检测模型服务</div>
+      </div>
+
+      <div class="controls">
+        <div>
+          <div class="toggle-row">
+            <span class="control-label">思考模式</span>
+            <label class="toggle">
+              <input type="checkbox" id="thinkingToggle" />
+              <div class="toggle-track"></div>
+              <div class="toggle-thumb"></div>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <div class="control-label">最大生成长度</div>
+          <input type="range" id="maxTokens" min="64" max="2048" step="64" value="512" />
+          <div class="range-value" id="maxTokensValue">512 tokens</div>
+        </div>
+
+        <button class="btn-clear" id="clearBtn">清空对话</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="chat-header">
+        <h2>对话</h2>
+        <span id="modelBadge">Qwen3-0.6B · CPU</span>
+      </header>
+
+      <div class="messages" id="messages">
+        <div class="welcome" id="welcome">
+          <div class="welcome-seal">问</div>
+          <h3>开始对话</h3>
+          <p>模型运行在你的本机上。<br />输入问题，即刻获得回复。</p>
+          <div class="suggestions">
+            <button class="suggestion" data-prompt="用三句话介绍你自己">自我介绍</button>
+            <button class="suggestion" data-prompt="写一首关于春天的五言绝句">写诗</button>
+            <button class="suggestion" data-prompt="解释什么是本地模型部署">本地部署</button>
+            <button class="suggestion" data-prompt="9.11和9.8哪个大？">逻辑推理</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <div class="input-wrap">
+          <div class="input-field">
+            <textarea
+              id="input"
+              placeholder="输入你的问题…"
+              rows="1"
+              autofocus
+            ></textarea>
+          </div>
+          <button class="btn-send" id="sendBtn" title="发送">
+            <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </div>
+        <div class="input-hint">Enter 发送 · Shift+Enter 换行 · 流式输出</div>
+      </div>
+    </main>
+  </div>
+
+  <div class="error-toast" id="errorToast"></div>
+
+  <script>
+    const messagesEl = document.getElementById("messages");
+    const welcomeEl = document.getElementById("welcome");
+    const inputEl = document.getElementById("input");
+    const sendBtn = document.getElementById("sendBtn");
+    const thinkingToggle = document.getElementById("thinkingToggle");
+    const maxTokensEl = document.getElementById("maxTokens");
+    const maxTokensValue = document.getElementById("maxTokensValue");
+    const clearBtn = document.getElementById("clearBtn");
+    const statusDot = document.getElementById("statusDot");
+    const statusLabel = document.getElementById("statusLabel");
+    const statusDetail = document.getElementById("statusDetail");
+    const modelBadge = document.getElementById("modelBadge");
+    const errorToast = document.getElementById("errorToast");
+
+    let history = [];
+    let isGenerating = false;
+
+    maxTokensEl.addEventListener("input", () => {
+      maxTokensValue.textContent = `${maxTokensEl.value} tokens`;
+    });
+
+    async function checkHealth() {
+      try {
+        const res = await fetch("/health");
+        const data = await res.json();
+        statusDot.className = "status-dot online";
+        statusLabel.textContent = "服务在线";
+        const modelName = data.model?.split(/[\\/]/).pop() || "Qwen3-0.6B";
+        const accessUrl = data.urls?.lan || window.location.origin + "/";
+        statusDetail.innerHTML = `${modelName} · ${data.device?.toUpperCase() || "CPU"}<br><a href="${accessUrl}" style="color:var(--jade-soft)">${accessUrl}</a>`;
+        modelBadge.textContent = `${modelName} · ${data.device?.toUpperCase() || "CPU"}`;
+        return true;
+      } catch {
+        statusDot.className = "status-dot offline";
+        statusLabel.textContent = "服务离线";
+        statusDetail.textContent = "请先运行 python serve.py";
+        return false;
+      }
+    }
+
+    function showError(msg) {
+      errorToast.textContent = msg;
+      errorToast.classList.add("show");
+      setTimeout(() => errorToast.classList.remove("show"), 3500);
+    }
+
+    const WELCOME_HTML = welcomeEl.innerHTML;
+
+    function stripThinkOpen(text) {
+      return text.replace(/^<(?:think|redacted_thinking)>\s*/i, "").trimStart();
+    }
+
+    function parseReply(text) {
+      const thinkEnd = /<\/think>|<\/redacted_thinking>/i;
+      if (thinkEnd.test(text)) {
+        const idx = text.search(thinkEnd);
+        const endLen = text.match(thinkEnd)[0].length;
+        const thinking = stripThinkOpen(text.slice(0, idx)).trim();
+        const answer = text.slice(idx + endLen).trim();
+        return { thinking: thinking || null, answer: answer || text };
+      }
+      return { thinking: null, answer: text };
+    }
+
+    function formatTime() {
+      return new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    }
+
+    function createStreamingMessage() {
+      const div = document.createElement("div");
+      div.className = "msg assistant streaming";
+
+      const avatar = document.createElement("div");
+      avatar.className = "msg-avatar";
+      avatar.textContent = "涧";
+
+      const body = document.createElement("div");
+      body.className = "msg-body";
+
+      const meta = document.createElement("div");
+      meta.className = "msg-meta";
+      meta.textContent = `墨涧 · ${formatTime()}`;
+
+      const contentEl = document.createElement("div");
+      contentEl.className = "msg-content";
+
+      const answerEl = document.createElement("span");
+      answerEl.className = "stream-text";
+      contentEl.appendChild(answerEl);
+
+      body.appendChild(meta);
+      body.appendChild(contentEl);
+      div.appendChild(avatar);
+      div.appendChild(body);
+      messagesEl.appendChild(div);
+      scrollToBottom();
+
+      return { el: div, contentEl, answerEl };
+    }
+
+    function finalizeStreamingMessage(wrapper, fullText) {
+      const { thinking, answer } = parseReply(fullText);
+      wrapper.el.classList.remove("streaming");
+      wrapper.contentEl.innerHTML = "";
+
+      if (thinking) {
+        const thinkBlock = document.createElement("div");
+        thinkBlock.className = "thinking-block";
+        thinkBlock.innerHTML = `<div class="thinking-label">思考过程</div>${escapeHtml(thinking)}`;
+        wrapper.contentEl.appendChild(thinkBlock);
+      }
+
+      const answerEl = document.createElement("span");
+      answerEl.textContent = answer || fullText;
+      wrapper.contentEl.appendChild(answerEl);
+    }
+
+    async function consumeStream(response, onChunk) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6).trim();
+          if (payload === "[DONE]") return;
+          const data = JSON.parse(payload);
+          if (data.text) onChunk(data.text);
+        }
+      }
+    }
+
+    function createMessage(role, content, thinking = null) {
+      const div = document.createElement("div");
+      div.className = `msg ${role}`;
+
+      const avatar = document.createElement("div");
+      avatar.className = "msg-avatar";
+      avatar.textContent = role === "user" ? "你" : "涧";
+
+      const body = document.createElement("div");
+      body.className = "msg-body";
+
+      const meta = document.createElement("div");
+      meta.className = "msg-meta";
+      meta.textContent = role === "user" ? `你 · ${formatTime()}` : `墨涧 · ${formatTime()}`;
+
+      const contentEl = document.createElement("div");
+      contentEl.className = "msg-content";
+
+      if (thinking) {
+        const thinkBlock = document.createElement("div");
+        thinkBlock.className = "thinking-block";
+        thinkBlock.innerHTML = `<div class="thinking-label">思考过程</div>${escapeHtml(thinking)}`;
+        contentEl.appendChild(thinkBlock);
+      }
+
+      const answerEl = document.createElement("span");
+      answerEl.textContent = content;
+      contentEl.appendChild(answerEl);
+
+      body.appendChild(meta);
+      body.appendChild(contentEl);
+      div.appendChild(avatar);
+      div.appendChild(body);
+      return div;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function showTyping() {
+      const div = document.createElement("div");
+      div.className = "msg assistant";
+      div.id = "typing";
+      div.innerHTML = `
+        <div class="msg-avatar">涧</div>
+        <div class="msg-body">
+          <div class="msg-meta">墨涧 · 生成中</div>
+          <div class="msg-content">
+            <div class="typing-indicator"><span></span><span></span><span></span></div>
+          </div>
+        </div>`;
+      messagesEl.appendChild(div);
+      scrollToBottom();
+    }
+
+    function hideTyping() {
+      document.getElementById("typing")?.remove();
+    }
+
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    async function sendMessage(text) {
+      const prompt = text.trim();
+      if (!prompt || isGenerating) return;
+
+      const online = await checkHealth();
+      if (!online) {
+        showError("模型服务未启动，请先运行 serve.py");
+        return;
+      }
+
+      if (welcomeEl) welcomeEl.remove();
+
+      history.push({ role: "user", content: prompt });
+      messagesEl.appendChild(createMessage("user", prompt));
+      scrollToBottom();
+
+      inputEl.value = "";
+      inputEl.style.height = "auto";
+      isGenerating = true;
+      sendBtn.disabled = true;
+
+      const streamMsg = createStreamingMessage();
+      let fullText = "";
+
+      try {
+        const res = await fetch("/chat/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: history,
+            enable_thinking: thinkingToggle.checked,
+            max_new_tokens: parseInt(maxTokensEl.value, 10),
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `请求失败 (${res.status})`);
+        }
+
+        await consumeStream(res, (chunk) => {
+          fullText += chunk;
+          streamMsg.answerEl.textContent = fullText;
+          scrollToBottom();
+        });
+
+        finalizeStreamingMessage(streamMsg, fullText);
+        history.push({ role: "assistant", content: fullText });
+        scrollToBottom();
+      } catch (err) {
+        streamMsg.el.remove();
+        history.pop();
+        showError(err.message || "生成失败，请重试");
+      } finally {
+        isGenerating = false;
+        sendBtn.disabled = false;
+        inputEl.focus();
+      }
+    }
+
+    sendBtn.addEventListener("click", () => sendMessage(inputEl.value));
+
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage(inputEl.value);
+      }
+    });
+
+    inputEl.addEventListener("input", () => {
+      inputEl.style.height = "auto";
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + "px";
+    });
+
+    clearBtn.addEventListener("click", () => {
+      history = [];
+      messagesEl.innerHTML = `<div class="welcome" id="welcome">${WELCOME_HTML}</div>`;
+      bindSuggestions();
+    });
+
+    function bindSuggestions() {
+      document.querySelectorAll(".suggestion").forEach((btn) => {
+        btn.addEventListener("click", () => sendMessage(btn.dataset.prompt));
+      });
+    }
+
+    bindSuggestions();
+    checkHealth();
+    setInterval(checkHealth, 15000);
+  </script>
+</body>
+</html>
