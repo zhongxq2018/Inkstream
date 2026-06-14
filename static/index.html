@@ -212,6 +212,20 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .conv-item.active .conv-item-title { color: var(--paper); }
+    .conv-item.generating .conv-item-title::after {
+      content: "";
+      display: inline-block;
+      width: 6px; height: 6px;
+      margin-left: 6px;
+      border-radius: 50%;
+      background: var(--jade-soft);
+      vertical-align: middle;
+      animation: conv-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes conv-pulse {
+      0%, 100% { opacity: 0.35; }
+      50% { opacity: 1; }
+    }
     .conv-item-action {
       width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
       background: transparent; border: none; color: var(--text-muted);

@@ -5,7 +5,7 @@ import json
 import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
-from threading import Event, Lock
+from threading import Event
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -15,15 +15,16 @@ from pydantic import BaseModel, Field
 
 import db as database
 from auth import Identity, get_current_identity, make_token, validate_username
-from infer import chat_messages, load_model, resolve_model_path, stream_chat_messages
+from config import config_source_label, estimate_memory_gb, load_config
+from infer import resolve_model_path
+from inference_pool import InferencePool, InferencePoolBusyError
 
-tokenizer = None
-model = None
 DEVICE = "cpu"
 PORT = 8000
 MODEL_PATH = resolve_model_path(None)
 STATIC_DIR = Path(__file__).parent / "static"
-GENERATION_LOCK = Lock()
+APP_CONFIG = load_config()
+inference_pool: InferencePool | None = None
 
 
 def _is_usable_lan_ip(ip: str) -> bool:
@@ -87,14 +88,27 @@ def _resolve_messages(req: ChatRequest) -> list[dict[str, str]]:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global tokenizer, model
+    global inference_pool
     database.init_db()
+    mem_gb = estimate_memory_gb(APP_CONFIG.inference_workers)
+    print(
+        f"推理配置 ({config_source_label()}): "
+        f"{APP_CONFIG.inference_workers} 路并行, "
+        f"排队超时 {APP_CONFIG.inference_queue_timeout}s, "
+        f"预估内存 ~{mem_gb:.1f}GB"
+    )
     print(f"正在加载模型: {MODEL_PATH}")
-    tokenizer, model = load_model(MODEL_PATH, DEVICE)
-    print("模型加载完成，API 已就绪")
+    inference_pool = InferencePool.create(
+        MODEL_PATH,
+        DEVICE,
+        APP_CONFIG.inference_workers,
+        float(APP_CONFIG.inference_queue_timeout),
+    )
+    print("API 已就绪")
     print(f"对话界面(本机):   http://127.0.0.1:{PORT}/")
     print(f"对话界面(局域网): http://{LOCAL_IP}:{PORT}/")
     yield
+    inference_pool = None
 
 
 app = FastAPI(title="Qwen3.5-0.8B Local API", lifespan=lifespan)
@@ -121,12 +135,18 @@ def share_page(token: str):
 
 @app.get("/health")
 def health():
+    pool_stats = inference_pool.stats() if inference_pool else {
+        "inference_workers": APP_CONFIG.inference_workers,
+        "inference_active": 0,
+        "inference_queued": 0,
+    }
     return {
         "status": "ok",
         "model": MODEL_PATH,
         "device": DEVICE,
         "local_ip": LOCAL_IP,
         "port": PORT,
+        **pool_stats,
         "urls": {
             "localhost": f"http://127.0.0.1:{PORT}/",
             "lan": f"http://{LOCAL_IP}:{PORT}/",
@@ -136,15 +156,33 @@ def health():
 
 # ── Original chat endpoints ───────────────────────────────────────────────────
 
+def _require_pool() -> InferencePool:
+    if inference_pool is None:
+        raise HTTPException(status_code=503, detail="推理服务尚未就绪")
+    return inference_pool
+
+
 @app.post("/chat", response_model=ChatResponse)
-def chat_api(req: ChatRequest):
+async def chat_api(req: ChatRequest):
     messages = _resolve_messages(req)
-    with GENERATION_LOCK:
-        reply = chat_messages(
-            tokenizer, model, messages,
-            enable_thinking=req.enable_thinking,
-            max_new_tokens=req.max_new_tokens,
+    pool = _require_pool()
+    try:
+        slot, _ = await pool.acquire()
+    except InferencePoolBusyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    loop = asyncio.get_event_loop()
+    try:
+        reply = await loop.run_in_executor(
+            None,
+            lambda: slot.chat(
+                messages,
+                enable_thinking=req.enable_thinking,
+                max_new_tokens=req.max_new_tokens,
+            ),
         )
+    finally:
+        await pool.release(slot)
     return ChatResponse(reply=reply)
 
 
@@ -162,23 +200,34 @@ def _next_chunk(gen):
 @app.post("/chat/stream")
 async def chat_stream_api(req: ChatRequest, request: Request):
     messages = _resolve_messages(req)
-    cancel_event = Event()
+    pool = _require_pool()
 
     async def event_stream():
-        loop = asyncio.get_event_loop()
+        cancel_event = Event()
+        slot = None
+        try:
+            try:
+                slot, position = await pool.acquire()
+            except InferencePoolBusyError as exc:
+                yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+                return
 
-        def generate():
-            with GENERATION_LOCK:
-                for chunk in stream_chat_messages(
-                    tokenizer, model, messages,
+            if position > 0:
+                yield f"data: {json.dumps({'event': 'queued', 'position': position}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'event': 'started'}, ensure_ascii=False)}\n\n"
+
+            loop = asyncio.get_event_loop()
+
+            def generate():
+                for chunk in slot.stream(
+                    messages,
                     enable_thinking=req.enable_thinking,
                     max_new_tokens=req.max_new_tokens,
                     cancel_event=cancel_event,
                 ):
                     yield chunk
 
-        gen = generate()
-        try:
+            gen = generate()
             while True:
                 if await request.is_disconnected():
                     cancel_event.set()
@@ -189,6 +238,8 @@ async def chat_stream_api(req: ChatRequest, request: Request):
                 yield f"data: {json.dumps({'text': chunk}, ensure_ascii=False)}\n\n"
         finally:
             cancel_event.set()
+            if slot is not None:
+                await pool.release(slot)
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

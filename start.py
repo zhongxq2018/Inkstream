@@ -208,6 +208,16 @@ def main() -> int:
         python = ensure_venv()
         install_dependencies(python)
 
+        from config import config_source_label, estimate_memory_gb, load_config
+
+        cfg = load_config()
+        mem_gb = estimate_memory_gb(cfg.inference_workers)
+        print(
+            f"\n推理并行 ({config_source_label()}): {cfg.inference_workers} 路, "
+            f"预估内存 ~{mem_gb:.1f}GB"
+        )
+        print("提示: 编辑 config.json 可调整 inference_workers\n")
+
         if not model_is_ready(python):
             download_model(python)
             if not model_is_ready(python):

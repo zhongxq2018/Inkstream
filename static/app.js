@@ -161,8 +161,10 @@ async function checkHealth() {
     const data = await res.json();
     statusDot.className = "status-dot online";
     statusLabel.textContent = "服务在线";
+    const workers = data.inference_workers ?? "?";
+    const active = data.inference_active ?? 0;
     const accessUrl = window.location.origin + "/";
-    statusDetail.innerHTML = `<a href="${accessUrl}" style="color:var(--jade-soft)">${accessUrl}</a>`;
+    statusDetail.innerHTML = `<a href="${accessUrl}" style="color:var(--jade-soft)">${accessUrl}</a> · ${workers} 路并行${active ? `（${active} 活跃）` : ""}`;
     return true;
   } catch {
     statusDot.className = "status-dot offline";
@@ -351,7 +353,7 @@ function hideTyping() { document.getElementById("typing")?.remove(); }
 function scrollToBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
 
 // ── SSE 流读取 ────────────────────────────────────────────────────────────────
-async function consumeStream(response, onChunk) {
+async function consumeStream(response, onEvent) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -365,8 +367,7 @@ async function consumeStream(response, onChunk) {
       if (!line.startsWith("data: ")) continue;
       const payload = line.slice(6).trim();
       if (payload === "[DONE]") return;
-      const data = JSON.parse(payload);
-      if (data.text) onChunk(data.text);
+      onEvent(JSON.parse(payload));
     }
   }
 }
@@ -377,7 +378,9 @@ function isStreamVisible(convId, streamMsg) {
 }
 
 function attachGenerationUI(job) {
-  job.streamMsg = createStreamingMessage();
+  if (!job.streamMsg?.el?.isConnected) {
+    job.streamMsg = createStreamingMessage();
+  }
   job.streamMsg.answerEl.textContent = job.fullText;
   scrollToBottom();
 }
@@ -390,22 +393,29 @@ function notifyGenerationUI(job) {
   for (const fn of job.uiListeners) fn();
 }
 
+function updateConvGeneratingMarkers() {
+  convListEl.querySelectorAll(".conv-item").forEach(el => {
+    const id = el.dataset.convId;
+    const job = activeGenerations.get(id);
+    el.classList.toggle("generating", !!(job && !job.done));
+  });
+}
+
 async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}) {
   const prompt = text.trim();
-  if (!prompt || isGenerating) return;
-  if (activeGenerations.size > 0) {
-    showError("请等待当前回答完成");
+  if (!prompt) return;
+
+  if (!activeConvId) {
+    const conv = await createConversation();
+    if (!conv) return;
+  }
+  if (activeGenerations.has(activeConvId)) {
+    showError("当前会话仍在回答中，请稍候或先停止");
     return;
   }
 
   const online = await checkHealth();
   if (!online) { showError("模型服务未启动，请先运行 serve.py"); return; }
-
-  // 确保有当前对话
-  if (!activeConvId) {
-    const conv = await createConversation();
-    if (!conv) return;
-  }
 
   // 锁定本次请求所属对话，切换对话后仍写入原对话
   const convId = activeConvId;
@@ -454,10 +464,12 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
   activeGenerations.set(convId, job);
   abortController = job.abortController;
   setGenerating(true);
+  updateConvGeneratingMarkers();
 
   if (activeConvId === convId) attachGenerationUI(job);
 
   let interrupted = false;
+  let queueShown = false;
 
   try {
     const res = await fetch("/chat/stream", {
@@ -476,9 +488,23 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
       throw new Error(err.detail || `请求失败 (${res.status})`);
     }
 
-    await consumeStream(res, chunk => {
-      job.fullText += chunk;
-      notifyGenerationUI(job);
+    await consumeStream(res, data => {
+      if (data.error) throw new Error(data.error);
+      if (data.event === "queued" && !queueShown) {
+        queueShown = true;
+        if (isStreamVisible(convId, job.streamMsg)) {
+          job.streamMsg.answerEl.textContent = `排队中（前面还有 ${data.position} 个）…`;
+        }
+      }
+      if (data.event === "started" && queueShown && !job.fullText) {
+        if (isStreamVisible(convId, job.streamMsg)) {
+          job.streamMsg.answerEl.textContent = "";
+        }
+      }
+      if (data.text) {
+        job.fullText += data.text;
+        notifyGenerationUI(job);
+      }
     });
   } catch (err) {
     if (err.name === "AbortError") {
@@ -490,6 +516,7 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
       showError(err.message || "生成失败，请重试");
       activeGenerations.delete(convId);
       if (activeConvId === convId) setGenerating(false);
+      updateConvGeneratingMarkers();
       return;
     }
   }
@@ -509,6 +536,7 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
     job.done = true;
     activeGenerations.delete(convId);
     if (activeConvId === convId) setGenerating(false);
+    updateConvGeneratingMarkers();
     await refreshConvList();
     return;
   }
@@ -523,6 +551,7 @@ async function sendMessage(text, { editMsgId = null, editSortOrder = null } = {}
   job.done = true;
   activeGenerations.delete(convId);
   if (activeConvId === convId) setGenerating(false);
+  updateConvGeneratingMarkers();
   await refreshConvList();
 }
 
@@ -546,8 +575,16 @@ function stopGeneration() {
   job.abortController.abort();
 }
 
+function syncGenerationUIForActiveConv() {
+  const generating = !!(activeConvId && activeGenerations.has(activeConvId));
+  setGenerating(generating);
+  if (generating) {
+    abortController = activeGenerations.get(activeConvId).abortController;
+  }
+}
+
 function detachGenerationUI() {
-  if (isGenerating) setGenerating(false);
+  syncGenerationUIForActiveConv();
 }
 
 function abortGenerationForConv(convId) {
@@ -564,7 +601,8 @@ stopBtn.addEventListener("click", () => {
 // ── 消息操作事件委托 ──────────────────────────────────────────────────────────
 messagesEl.addEventListener("click", async e => {
   const btn = e.target.closest(".msg-action-btn");
-  if (!btn || isGenerating) return;
+  if (!btn) return;
+  if (activeConvId && activeGenerations.has(activeConvId)) return;
   const action = btn.dataset.action;
   const msgEl = btn.closest(".msg");
   if (!msgEl) return;
@@ -673,7 +711,6 @@ async function createConversation() {
 }
 
 async function loadConversation(convId) {
-  detachGenerationUI();
   try {
     const res = await fetch(`/api/conversations/${convId}`, { headers: apiHeaders() });
     const conv = await res.json();
@@ -687,8 +724,8 @@ async function loadConversation(convId) {
     if (job && !job.done) {
       attachGenerationUI(job);
       abortController = job.abortController;
-      setGenerating(true);
     }
+    syncGenerationUIForActiveConv();
   } catch {
     showError("加载对话失败");
   }
@@ -738,6 +775,7 @@ function renderConvList(groups) {
     }
   }
   highlightActiveConv();
+  updateConvGeneratingMarkers();
 }
 
 function makeConvItem(conv) {
@@ -805,14 +843,15 @@ function highlightActiveConv() {
   convListEl.querySelectorAll(".conv-item").forEach(el => {
     el.classList.toggle("active", el.dataset.convId === activeConvId);
   });
+  updateConvGeneratingMarkers();
 }
 
 newConvBtn.addEventListener("click", async () => {
-  detachGenerationUI();
   const conv = await createConversation();
   if (!conv) return;
   messagesEl.innerHTML = `<div class="welcome" id="welcome">${WELCOME_HTML}</div>`;
   bindSuggestions();
+  syncGenerationUIForActiveConv();
   await refreshConvList();
   closeSidebar();
 });

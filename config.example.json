@@ -1,0 +1,4 @@
+{
+  "inference_workers": 2,
+  "inference_queue_timeout": 120
+}

@@ -32,6 +32,10 @@ modelscope/
 ├── start.py / start.bat    # 一键启动
 ├── serve.py                # FastAPI 主服务
 ├── infer.py                # 模型加载与推理
+├── inference_pool.py       # 多副本推理池
+├── config.py               # 应用配置加载
+├── config.json             # 应用配置（并行路数等，直接修改）
+├── config.example.json     # 配置字段说明参考
 ├── download_model.py       # 从 ModelScope 下载模型
 ├── db.py                   # 对话 / 消息 / 分享数据层
 ├── auth.py                 # 用户认证
@@ -154,10 +158,31 @@ GET  /share/{token}          # 分享页面
 | 项 | 位置 | 默认值 |
 |----|------|--------|
 | 端口 | `serve.py`、`start.py` 中 `PORT` | `8000` |
+| **推理并行路数** | `config.json` 中 `inference_workers` 或环境变量 `INFERENCE_WORKERS` | **2** |
+| 排队超时（秒） | `config.json` 中 `inference_queue_timeout` 或 `INFERENCE_QUEUE_TIMEOUT` | `120` |
 | 模型 ID | `infer.py` 中 `MODEL_ID` | `Qwen/Qwen3.5-0.8B` |
 | 模型目录 | `infer.py` 中 `MODELS_ROOT` | `./models/Qwen` |
 | 数据库 | `db.py` 中 `DB_PATH` | `data/chat.db` |
 | 签名密钥 | 环境变量 `CHAT_SECRET_KEY` 或 `data/.secret` | 首次启动自动生成 |
+
+### 并发配置
+
+仓库已包含 [`config.json`](config.json)，拉取代码后可直接编辑：
+
+```json
+{
+  "inference_workers": 2,
+  "inference_queue_timeout": 120
+}
+```
+
+| 机器内存 | 建议 `inference_workers` |
+|----------|--------------------------|
+| 8 GB     | 2（默认）                |
+| 16 GB    | 4                        |
+| 32 GB+   | 6–8                      |
+
+每增加 1 路并行约多占 **2–3 GB** 内存。修改后重启服务生效。`GET /health` 可查看当前路数与活跃/排队数。
 
 ## 开发与测试
 
